@@ -1,0 +1,78 @@
+{
+  "name": "x402-routenet",
+  "version": "1.0.0",
+  "displayName": "x402 RouteNet",
+  "description": "Smart routing infrastructure for x402 services. Route any capability request to the best available x402 service \u2014 automatically selected by price, speed, or quality. Built on x402 Service Discovery.",
+  "homepage": "https://github.com/rplryan/x402-routenet",
+  "icon": "https://avatars.githubusercontent.com/u/rplryan",
+  "tools": [
+    {
+      "name": "routenet_route",
+      "description": "Route a capability request to the best available x402 service. Returns routing decision, cost breakdown (Pricing Model 3: $0.0002 flat + 0.5% settlement), and quality signals.",
+      "annotations": {
+        "readOnlyHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "title": "Route to Best x402 Service"
+      }
+    },
+    {
+      "name": "routenet_simulate",
+      "description": "Dry-run routing decision. Preview which x402 service would be selected and why, with top-5 candidates ranked. Free, no execution.",
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "title": "Simulate Routing Decision"
+      }
+    },
+    {
+      "name": "routenet_strategies",
+      "description": "List all routing strategies (best, cheapest, fastest, custom) with scoring formulas, use cases, and Pricing Model 3 fee structure.",
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "title": "List Routing Strategies"
+      }
+    }
+  ],
+  "prompts": [
+    {
+      "name": "route_capability_request",
+      "description": "Guided workflow: describe what capability you need, RouteNet finds the best x402 service."
+    },
+    {
+      "name": "compare_routing_strategies",
+      "description": "Compare best vs cheapest vs fastest routing strategies for any capability."
+    }
+  ],
+  "resources": [
+    {
+      "uri": "routenet://strategies",
+      "name": "Routing Strategies",
+      "description": "All routing strategies with formulas and use cases"
+    },
+    {
+      "uri": "routenet://pricing",
+      "name": "Pricing Model 3",
+      "description": "Fee structure: $0.0002 flat routing fee + 0.5% settlement"
+    }
+  ],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "strategy": {
+        "type": "string",
+        "enum": ["best", "cheapest", "fastest", "custom"],
+        "default": "best",
+        "description": "Default routing strategy"
+      },
+      "discoveryApiUrl": {
+        "type": "string",
+        "default": "https://x402-discovery-api.onrender.com",
+        "description": "x402 Service Discovery API URL (optional override)"
+      }
+    }
+  }
+}
