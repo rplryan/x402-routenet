@@ -13,6 +13,59 @@ CACHE_TTL_SECONDS = 30
 # Simple in-memory cache: { query_key: (timestamp, results) }
 _cache: dict[str, tuple[float, list]] = {}
 
+# Synonym / category expansion: map user terms → catalog terms
+CAPABILITY_SYNONYMS: dict[str, list[str]] = {
+    # AI & ML
+    "ai inference": ["compute", "ai", "generation", "language model", "llm"],
+    "inference": ["compute", "ai", "generation"],
+    "llm": ["compute", "ai", "generation", "language"],
+    "language model": ["compute", "ai", "generation"],
+    "image generation": ["image", "generation", "art", "visual"],
+    "image": ["image", "art", "visual", "photo"],
+    # Data
+    "web scraping": ["scraping", "extraction", "crawl", "data"],
+    "scraping": ["extraction", "crawl", "data"],
+    "data extraction": ["extraction", "data", "scraping"],
+    "search": ["search", "research", "data"],
+    "price": ["price", "financial", "crypto", "market"],
+    "crypto price": ["price", "financial", "crypto", "blockchain"],
+    "stock": ["financial", "market", "price", "trading"],
+    # Communication
+    "email": ["email", "communication", "notification"],
+    "sms": ["sms", "communication", "notification"],
+    "notification": ["notification", "communication", "messaging"],
+    # Storage
+    "storage": ["storage", "database", "file"],
+    "database": ["storage", "database"],
+    "file storage": ["storage", "file"],
+    # Summarization
+    "summarize": ["summarization", "summary", "nlp"],
+    "summarization": ["summarization", "summary", "nlp", "text"],
+    "text processing": ["summarization", "nlp", "text", "extraction"],
+    # Other
+    "translation": ["translation", "language", "nlp"],
+    "monitoring": ["monitoring", "analytics", "uptime"],
+    "routing": ["routing", "infrastructure", "network"],
+}
+
+
+def expand_capability(capability: str) -> list[str]:
+    """Expand a capability string to a list of search terms using synonyms."""
+    lower = capability.lower().strip()
+    # Direct match
+    if lower in CAPABILITY_SYNONYMS:
+        return CAPABILITY_SYNONYMS[lower]
+    # Partial match — check if any synonym key is a substring
+    expanded = []
+    for key, synonyms in CAPABILITY_SYNONYMS.items():
+        if key in lower or lower in key:
+            expanded.extend(synonyms)
+    if expanded:
+        return list(set(expanded))
+    # Fallback: original words (filter short ones)
+    words = [w for w in lower.split() if len(w) > 2]
+    return words if words else [lower]
+
 
 async def discover_services(capability: str, limit: int = 10) -> list[dict]:
     """
@@ -67,7 +120,7 @@ async def discover_services(capability: str, limit: int = 10) -> list[dict]:
 
 
 async def _fetch_catalog_fallback(capability: str) -> list[dict]:
-    """Fallback: get full catalog and filter by keyword matching."""
+    """Fallback: get full catalog and filter by keyword matching with synonym expansion."""
     try:
         url = f"{DISCOVERY_API_URL}/catalog"
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -87,10 +140,8 @@ async def _fetch_catalog_fallback(capability: str) -> list[dict]:
         else:
             return []
 
-        # Multi-word keyword matching: split into words, match any
-        words = [w for w in capability.lower().split() if len(w) > 2]
-        if not words:
-            words = [capability.lower()]
+        # Expand capability to search terms using synonym map
+        search_terms = expand_capability(capability)
 
         matched = []
         for svc in all_services:
@@ -101,8 +152,8 @@ async def _fetch_catalog_fallback(capability: str) -> list[dict]:
                 " ".join(svc.get("tags") or []),
                 str(svc.get("category") or ""),
             ]).lower()
-            # Match if ANY of the capability words appear in the service text
-            if any(w in text for w in words):
+            # Match if ANY search term appears in the service text
+            if any(term in text for term in search_terms):
                 matched.append(svc)
 
         return matched
