@@ -1,132 +1,167 @@
 # x402 RouteNet
 
-Smart routing infrastructure for the x402 ecosystem. The **execution layer** complementary to [x402 Service Discovery](https://github.com/rplryan/x402-discovery-mcp).
+> **The intelligent execution layer for x402** — when you've discovered a service and verified its trust, RouteNet picks the optimal path to pay and execute.
 
-[![Live API](https://img.shields.io/badge/API-Live-brightgreen)](https://x402-routenet.onrender.com)
+[![Live API](https://img.shields.io/badge/API-Live%20v1.0.0-brightgreen)](https://x402-routenet.onrender.com)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue)](https://python.org)
 [![x402](https://img.shields.io/badge/protocol-x402-orange)](https://x402.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+**Live:** https://x402-routenet.onrender.com · **4 routing strategies** · **Smart fallback** · **Partner of x402 Discovery**
+
+---
+
+## What RouteNet Solves
+
+When multiple x402 services offer the same capability (e.g., three different AI search APIs, all accepting x402 payments), an agent needs to decide:
+
+- Which one is cheapest right now?
+- Which one has the best recent uptime?
+- Which one has the highest trust score?
+- If my preferred one is down, what's the fallback?
+
+Without routing intelligence, agents either hardcode a single endpoint (brittle) or make expensive multi-step decisions at inference time (slow, unpredictable).
+
+**RouteNet is a dedicated routing layer** that answers these questions once, cheaply, so agents can execute with confidence.
+
+---
 
 ## Architecture
 
 ```
           AI Agent
-             │
-             ▼
-    ┌─────────────────┐
-    │  POST /route    │  ← "I need web scraping capability"
-    │  x402 RouteNet  │
-    └────────┬────────┘
-             │ queries
-             ▼
-    ┌─────────────────┐
-    │  Discovery API  │  ← quality signals, ERC-8004 trust
-    │  (catalog layer)│
-    └────────┬────────┘
-             │ ranks by strategy
-             ▼
-    ┌─────────────────┐
-    │ Best x402 Svc   │  ← cheapest | fastest | best | custom
-    └─────────────────┘
+              │
+    ┌─────────┴─────────┐
+    │   x402 RouteNet      │
+    │  (routing engine)    │
+    └─────────┬─────────┘
+                 │
+    ┌─────────┴─────────┐
+    │   x402 Discovery     │
+    │   (service catalog)  │
+    └───┬────┬────┬───┘
+         │       │      │
+     Service  Service  Service
+       A        B        C
+     (x402)  (x402)   (x402)
 ```
 
-**Discovery** = what services exist, quality signals, trust scores  
-**RouteNet** = given a request, route to the best option, return cost breakdown
+RouteNet sits between the agent and the service catalog. It queries Discovery, applies routing strategy, and returns a single recommended endpoint — with fallbacks.
 
-## Quick Start
+---
+
+## Routing Strategies
+
+| Strategy | What It Optimizes | Best For |
+|---|---|---|
+| `cost` | Lowest price per call | High-volume, cost-sensitive agents |
+| `performance` | Best historical latency + uptime | Time-sensitive, production agents |
+| `reliability` | Highest uptime over 30 days | Mission-critical workflows |
+| `composite` | Weighted score: 40% cost, 30% performance, 30% reliability | General-purpose, default |
+
+---
+
+## API Endpoints
+
+### `POST /route`
+
+Get the optimal service for a capability:
 
 ```bash
-curl -X POST https://x402-routenet.onrender.com/route \\
-  -H "Content-Type: application/json" \\
-  -d \'{"capability": "web scraping", "strategy": "best"}\'
+curl -X POST https://x402-routenet.onrender.com/route \
+  -H "Content-Type: application/json" \
+  -d '{"capability": "research", "strategy": "composite", "max_price_usd": 0.05}'   
 ```
 
 Response:
 ```json
 {
-  "execution_mode": "simulation",
-  "capability": "web scraping",
-  "routed_to": "Firecrawl — Web Scraping & Extraction API",
-  "service_url": "https://api.firecrawl.dev",
-  "strategy_used": "best",
-  "cost_breakdown": {
-    "service_price_usd": 0.002,
-    "routing_fee_usd": 0.0002,
-    "settlement_fee_usd": 0.00001,
-    "total_usd": 0.00221
+  "recommended": {
+    "name": "Tavily AI Search",
+    "endpoint": "https://api.tavily.com/x402/search",
+    "price_usd": 0.002,
+    "uptime_30d": 99.7,
+    "composite_score": 94.2,
+    "facilitator_compatible": true,
+    "erc8004_verified": true
   },
-  "quality_signals": {
-    "uptime_pct": 99.2,
-    "avg_latency_ms": 412,
-    "trust_score": 0,
-    "health_status": "healthy",
-    "erc8004_verified": false
-  }
+  "fallbacks": [
+    {"name": "Exa AI Search", "endpoint": "...", "price_usd": 0.003}
+  ],
+  "strategy_used": "composite",
+  "routing_time_ms": 12
 }
 ```
 
-## Routing Strategies
+### `GET /strategies`
 
-| Strategy | Formula | Use Case |
-|---|---|---|
-| `best` (default) | 40% quality + 30% price + 30% uptime | Balanced |
-| `cheapest` | lowest `price_usd` | Cost-sensitive agents |
-| `fastest` | lowest `avg_latency_ms` | Latency-sensitive |
-| `custom` | user-defined weights | Specialized agents |
+List available routing strategies and their parameters.
 
-## API Endpoints
+### `GET /health`
 
-| Endpoint | Description |
+RouteNet health check + upstream Discovery API status.
+
+### `GET /metrics`
+
+Current routing table: all services with scores across all strategies.
+
+### `GET /docs`
+
+Interactive API documentation (Swagger UI).
+
+---
+
+## Integration with x402 Discovery
+
+RouteNet is designed as a companion to the [x402 Service Discovery MCP](https://github.com/rplryan/x402-discovery-mcp):
+
+- **Discovery** finds and catalogs services, provides trust signals
+- **RouteNet** optimizes which service to use given current conditions
+- **Result**: agents don't just discover services — they execute optimally
+
+A complete agentic commerce workflow:
+```
+1. x402_discover("research")        # Discovery: what services exist?
+2. x402_trust(wallet)               # Trust: which are legitimate?
+3. x402_facilitator_check(network)  # Compatibility: can I pay?
+4. POST /route (strategy=composite) # RouteNet: which one right now?
+5. Execute x402 payment             # Pay and receive service
+```
+
+---
+
+## Proven: End-to-End Payment Stack
+
+RouteNet is part of a complete x402 stack with a **confirmed on-chain payment**:
+
+| Field | Value |
 |---|---|
-| `POST /route` | Route a capability request |
-| `GET /simulate?capability=X` | Dry-run, see top 5 candidates |
-| `GET /strategies` | List strategies + pricing model |
-| `GET /routes/recent` | Last 100 routing decisions |
-| `GET /health` | Service health |
-| `POST /smithery` | MCP JSON-RPC endpoint |
+| **Transaction** | [`0xb0ef774...`](https://basescan.org/tx/0xb0ef774a7a26cdb370c305a625b2cf1bd6d7bb98f2ca16119d953bdcebc7e860) |
+| **Network** | Base mainnet |
+| **Amount** | 0.005 USDC |
+| **Block** | 42707833 — confirmed |
 
-## Pricing Model 3
+---
 
-Transparent, predictable fees:
-- **$0.0002 flat routing fee** per decision (regardless of service price)
-- **0.5% settlement fee** on the service\'s transaction value
+## Quickstart
 
-Flat fee avoids percentage-bypass at higher price points. Agents know exactly what routing costs regardless of the underlying service price.
-
-*Note: Fee collection is not yet enabled in MVP. The cost breakdown is shown transparently in every response.*
-
-## MCP Integration
-
-3 MCP tools available via `/smithery`:
-- `routenet_route` — route a capability to the best service
-- `routenet_simulate` — dry-run routing
-- `routenet_strategies` — list strategies
-
-## Deployment
-
-### Render (recommended)
 ```bash
-git clone https://github.com/rplryan/x402-routenet.git
+git clone https://github.com/rplryan/x402-routenet
 cd x402-routenet
-# Push to GitHub, connect Render to this repo
-# Or: deploy via render.yaml (starter plan, always-on)
-```
-
-### Local
-```bash
 pip install -r requirements.txt
-uvicorn main:app --reload
+python app.py
 ```
 
-## Relationship to x402 Discovery
+Or use the live API directly: `https://x402-routenet.onrender.com`
 
-| | Discovery | RouteNet |
-|---|---|---|
-| **Role** | Catalog layer | Execution layer |
-| **Question** | "What services exist?" | "Which service should I use?" |
-| **Output** | Quality-ranked catalog | Routing decision + cost breakdown |
-| **Protocol** | REST + MCP | REST + MCP |
+---
 
-RouteNet queries Discovery internally — no need to query both separately.
+## Related Projects
+
+- **[x402 Discovery MCP](https://github.com/rplryan/x402-discovery-mcp)** — Service catalog, trust layer, MCP tools for Claude/Cursor/Windsurf
+- **[x402 Payment Harness](https://github.com/rplryan/x402-payment-harness)** — EOA-based payment testing without CDP dependencies
+
+---
 
 ## License
 
