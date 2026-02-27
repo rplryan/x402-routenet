@@ -1,179 +1,203 @@
 # x402 RouteNet
 
-> Intelligent routing for x402 micropayments — multi-provider fallback, latency-based selection, automatic failover.
+> **The intelligent routing layer for the x402 agent economy.** When 251+ payable services exist, RouteNet decides which one your agent should use — in real time, based on price, latency, uptime, and on-chain trust.
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Network: Base](https://img.shields.io/badge/network-Base-0052FF.svg)](https://base.org)
 [![Live on Render](https://img.shields.io/badge/live-render.com-46E3B7.svg)](https://x402-routenet.onrender.com)
+[![Discovery API](https://img.shields.io/badge/powered_by-x402_Discovery_API-orange.svg)](https://x402-discovery-api.onrender.com)
 
 **Live API:** https://x402-routenet.onrender.com
 
-RouteNet is the routing layer for x402 payment infrastructure. Instead of hardcoding a single payment facilitator, your application routes through RouteNet and gets intelligent provider selection based on cost, speed, reliability, or load distribution — with automatic failover when any individual provider is unavailable.
+---
+
+## The Problem RouteNet Solves
+
+The x402 protocol enables HTTP-native micropayments — but as the ecosystem grows to 251+ live services, agents face a new challenge: **which service do you actually pay?**
+
+Choosing wrong means:
+- Paying a service that's offline (wasted transaction)
+- Routing to a slow provider when a faster one exists
+- Trusting an unverified service with no on-chain reputation
+- Hardcoding a single provider and having no fallback when it fails
+
+**RouteNet is the answer.** It sits between your agent and the x402 ecosystem, making real-time routing decisions so your agent doesn't have to.
 
 ---
 
-## Quick Start
+## Architecture: The Complete Agent Payment Stack
 
-```bash
-# Check service health
-curl https://x402-routenet.onrender.com/health
-
-# Route a payment request to the optimal provider
-curl -X POST https://x402-routenet.onrender.com/route \
-  -H "Content-Type: application/json" \
-  -d '{
-    "service_url": "https://example.com/api",
-    "strategy": "fastest",
-    "network": "base-mainnet"
-  }'
 ```
+  ┌─────────────────────────────────────────────────────────┐
+  │           Your AI Agent                        │
+  └─────────────────────┬───────────────────────────────────┘
+                         | "I need web scraping"
+                         ▼
+  ┌─────────────────────────────────────────────────────────┐
+  │          x402 Discovery API              │  ← FIND
+  │  x402-discovery-api.onrender.com         │
+  │  251+ indexed services with trust scores │
+  └─────────────────────┬───────────────────────────────────┘
+                         | "Here are 12 web scraping services"
+                         ▼
+  ┌─────────────────────────────────────────────────────────┐
+  │          x402 RouteNet                    │  ← ROUTE
+  │  x402-routenet.onrender.com              │
+  │  health + latency + ERC-8004 trust score │
+  └──────────┬──────────────┬──────────────────────────────┘
+           |              |
+           ▼              ▼
+  ┌─────────────┐  ┌────────────────────────────┐
+  │ Provider A  │  │ Provider B (degraded → skip)│
+  │ (healthy ✓) │  │               ✗              │
+  └──────┬──────┘  └────────────────────────────┘
+         |
+         ▼
+  ┌─────────────────────────────────────────────────────────┐
+  │          x402 Payment Harness              │  ← PAY
+  │  pip install x402-payment-harness          │
+  │  EIP-712 sign → X-PAYMENT header → HTTP 200 │
+  └─────────────────────────────────────────────────────────┘
+```
+
+**Discover → Route → Pay.** The complete agent-native payment stack for x402, built on Base.
 
 ---
 
 ## Routing Strategies
 
-| Strategy | Description | Best For |
+Four production-grade strategies, each tuned for a different agent workload:
+
+| Strategy | Algorithm | Best For |
 |---|---|---|
-| `cheapest` | Selects the provider with the lowest USDC fee | Cost-sensitive or high-volume applications |
-| `fastest` | Minimizes latency based on rolling response time history | Real-time or user-facing applications |
-| `most_reliable` | Prefers providers with the highest historical success rate | Mission-critical payment flows |
-| `load_balanced` | Distributes traffic evenly across all healthy providers | Applications with variable or bursty traffic |
+| `best` | Composite: uptime (40%) + speed (30%) + ERC-8004 trust (30%) | **Recommended default** — balances reliability, performance, trust |
+| `cheapest` | Lowest price among services with >80% uptime | High-volume agents, cost-sensitive workloads |
+| `fastest` | Lowest average latency among healthy services | Real-time applications, user-facing agents |
+| `custom` | Filter by `max_price`, `min_uptime`, `category`, `min_trust_score`, then `best` composite | Fine-grained agent-defined constraints |
+
+### ERC-8004 Trust Integration
+
+The `best` strategy (and `custom`) factor in on-chain identity via ERC-8004:
+
+```
+score = (uptime_pct / 100) × 0.4
+      + (1 - min(latency_ms / 1000, 1)) × 0.3
+      + (trust_score / 100) × 0.3   ← ERC-8004 verified identity
+```
+
+Services with ERC-8004 registration are scored on verified on-chain identity — not self-reported metadata. **Bad actors cannot game routing** by submitting inflated claims to the registry.
 
 ---
 
 ## API Reference
 
+| Endpoint | Method | Description |
+|---|---|---|
+| `/route` | POST | Route a capability request to the optimal x402 service |
+| `/simulate` | GET | Dry-run routing decision (no live request) |
+| `/strategies` | GET | All strategies with formulas and use cases |
+| `/routes/recent` | GET | Last 100 routing decisions with timestamps and costs |
+| `/health` | GET | Service health, version, routes processed |
+
 ### `POST /route`
 
-Route a request to the optimal provider based on your chosen strategy.
+```bash
+curl -X POST https://x402-routenet.onrender.com/route \
+  -H "Content-Type: application/json" \
+  -d '{"capability": "web scraping", "strategy": "best"}'
+```
 
 ```json
-POST https://x402-routenet.onrender.com/route
 {
-  "service_url": "https://example.com/api",
-  "strategy": "fastest",
-  "network": "base-mainnet"
+  "routed_to": "Firecrawl",
+  "url": "https://api.firecrawl.dev/x402",
+  "strategy_used": "best",
+  "total_usd": 0.001205,
+  "fallback_available": true,
+  "trust_score": 85,
+  "avg_latency_ms": 142
 }
 ```
 
-**Response:**
+### `GET /simulate`
 
-```json
-{
-  "routed_to": "https://provider-a.example.com/api",
-  "strategy_used": "fastest",
-  "estimated_latency_ms": 45,
-  "fallback_available": true,
-  "provider_id": "provider-a"
-}
+```bash
+curl "https://x402-routenet.onrender.com/simulate?capability=token+prices&strategy=cheapest"
+# Dry-run: shows which provider would be selected without executing
 ```
 
 ### `GET /health`
 
 ```bash
 curl https://x402-routenet.onrender.com/health
-# {"status": "ok", "version": "1.0.0", "providers_online": 3}
-```
-
-### `GET /providers`
-
-Returns all registered providers with their current status, latency history, and success rates.
-
-```bash
-curl https://x402-routenet.onrender.com/providers
-```
-
-### `POST /providers/register`
-
-Register a new x402 provider endpoint with RouteNet.
-
-```json
-POST https://x402-routenet.onrender.com/providers/register
-{
-  "name": "my-facilitator",
-  "url": "https://my-facilitator.example.com",
-  "network": "base-mainnet",
-  "fee_usdc": 0.001
-}
+# {"status": "healthy", "version": "1.0.0", "routes_processed": 5}
 ```
 
 ---
 
-## Why Routing Matters
+## Quick Start
 
-The x402 protocol enables HTTP-native micropayments, but production deployments face a fundamental reliability problem: **a single facilitator is a single point of failure.**
+```python
+import requests
 
-When a payment facilitator goes down, every payment routed through it fails — often silently from the end user's perspective. For applications where payment success equals functionality, this is not acceptable.
+# Route to the optimal x402 service for any capability
+route = requests.post(
+    "https://x402-routenet.onrender.com/route",
+    json={"capability": "web scraping", "strategy": "best"}
+).json()
 
-RouteNet addresses this directly:
+print(f"Route to: {route['routed_to']} at ${route['total_usd']}/call")
+# Route to: Firecrawl at $0.001205/call
+```
 
-- **Monitors** all registered providers continuously via background health checks
-- **Detects** degraded or failed providers before they affect your users
-- **Routes around** unavailable providers automatically, without client changes
-- **Selects** the best available provider based on your chosen strategy
-- **Tracks** per-provider success rates, latency, and cost to inform routing decisions over time
-
-For production x402 applications, the difference between a hardcoded single endpoint and intelligent routing is the difference between a brittle demo and a system your users can depend on.
+No API key. No configuration. Zero setup for agents.
 
 ---
 
-## Integration Example
+## Full Stack Integration
 
 ```python
 import requests
 from x402_harness import X402Client  # pip install x402-payment-harness
 
-def make_x402_payment(service_url: str, strategy: str = "most_reliable") -> dict:
-    # Ask RouteNet for the optimal provider
-    route_response = requests.post(
-        "https://x402-routenet.onrender.com/route",
-        json={
-            "service_url": service_url,
-            "strategy": strategy,
-            "network": "base-mainnet"
-        }
-    ).json()
+# 1. Discover available services
+discovery = requests.get(
+    "https://x402-discovery-api.onrender.com/discover",
+    params={"query": "token price data", "max_price_usd": "0.01"}
+).json()
+print(f"Found {len(discovery['services'])} services")
 
-    routed_url = route_response["routed_to"]
+# 2. Route to the optimal provider
+route = requests.post(
+    "https://x402-routenet.onrender.com/route",
+    json={"capability": "token price data", "strategy": "best"}
+).json()
+print(f"Routing to: {route['routed_to']} (trust score: {route.get('trust_score', 'N/A')}%)")
 
-    # Use the routed URL with the x402 Payment Harness
-    client = X402Client(private_key="0xYOUR_PRIVATE_KEY")
-    return client.get(routed_url)
+# 3. Pay and consume
+client = X402Client(private_key="0xYOUR_PRIVATE_KEY")
+result = client.get(route["url"])
+print(f"Result: {result}")
 ```
+
+This implements the ["Dynamic Endpoint Shopper"](https://github.com/coinbase/x402/blob/main/PROJECT-IDEAS.md) pattern from the coinbase/x402 project ideas — an agent that discovers a service registry, selects the best provider based on real-time signals, and pays — all in three API calls.
 
 ---
 
-## Architecture
+## Use Cases
 
-```
-  Your Application
-        │
-        ▼
-  ┌─────────────┐     ┌──────────────────────┐
-  │  x402       │◄────│  Health Monitor      │
-  │  RouteNet   │     │  (background polling)│
-  └──────┬──────┘     └──────────────────────┘
-         │
-         ▼
-  ┌─────────────────────────────────┐
-  │  Strategy Engine                │
-  │  cheapest / fastest /           │
-  │  most_reliable / load_balanced  │
-  └──────────────┬──────────────────┘
-                 │
-         ┌───────┼───────┐
-         ▼       ▼       ▼
-    Provider  Provider  Provider
-       A        B        C
-   (healthy) (healthy) (degraded → skipped)
-```
+**AI Agent Orchestration** — An agent chooses between 12 web scraping services. RouteNet picks the best uptime/latency/trust composite — without the agent implementing health checking logic.
+
+**Cost-Optimized Data Pipelines** — 10,000 token price queries/day with `strategy: cheapest` automatically routes to the lowest-price service meeting the uptime threshold.
+
+**Mission-Critical Flows** — Time-sensitive DeFi agents use `strategy: fastest` with automatic fallback if the primary provider degrades.
+
+**Trust-Gated Networks** — Require ERC-8004 registration before a provider can receive traffic via `custom` strategy with `min_trust_score: 50`.
 
 ---
 
 ## Self-Hosting
-
-RouteNet is a standard FastAPI application. Deploy anywhere that runs Python:
 
 ```bash
 git clone https://github.com/rplryan/x402-routenet
@@ -182,27 +206,29 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Configuration via environment variables:
+Or use the hosted instance at https://x402-routenet.onrender.com — no setup required.
+
+**Environment variables:**
 
 | Variable | Description | Default |
 |---|---|---|
 | `PORT` | Port to listen on | `8000` |
-| `HEALTH_CHECK_INTERVAL` | Seconds between provider health checks | `30` |
-| `LATENCY_WINDOW` | Number of recent requests used for latency averaging | `10` |
+| `HEALTH_CHECK_INTERVAL` | Seconds between provider health polls | `30` |
+| `LATENCY_WINDOW` | Rolling window size for latency averaging | `10` |
+| `DISCOVERY_API_URL` | Discovery API endpoint | `https://x402-discovery-api.onrender.com` |
 
 ---
 
-## Part of the x402 Infrastructure Suite
+## The x402 Infrastructure Suite
 
-RouteNet is part of a set of tools built to make x402 production-ready for developers:
-
-| Tool | What It Does | Status |
+| Tool | Role | Status |
 |---|---|---|
-| **x402 Payment Harness** | EOA-based client library and CLI for testing x402 | [PyPI + GitHub](https://github.com/rplryan/x402-payment-harness) |
-| **x402 Discovery API** | Searchable registry of live x402-enabled services | [Live on Render](https://github.com/rplryan/x402-discovery-api) |
-| **x402 RouteNet** | Intelligent routing with multi-provider fallback | This repo |
+| [x402 Discovery API](https://github.com/rplryan/x402-discovery-api) | **Find** — 251+ x402 services indexed, quality signals, ERC-8004 trust scores, auto-scanner | ✅ Live |
+| [x402 RouteNet](https://github.com/rplryan/x402-routenet) | **Route** — Intelligent routing: health + latency + trust → optimal provider | ✅ Live |
+| [x402 Payment Harness](https://github.com/rplryan/x402-payment-harness) | **Pay** — EOA-based EIP-712 signing, proven on Base mainnet | ✅ PyPI |
+| [x402 Discovery MCP](https://github.com/rplryan/x402-discovery-mcp) | **Agent tools** — 5 MCP tools for Claude/Cursor/Windsurf, Smithery 100/100 | ✅ Live |
 
-Together, these tools cover the three layers a production x402 stack needs: **find** services (Discovery API), **route** payments reliably (RouteNet), and **test** the full client flow (Payment Harness).
+Together: the complete open-source infrastructure for x402 service discovery and payment on Base.
 
 ---
 
@@ -210,7 +236,7 @@ Together, these tools cover the three layers a production x402 stack needs: **fi
 
 | Version | Changes |
 |---|---|
-| 1.0.0 | Initial release: 4 routing strategies, background health monitoring, provider registry, REST API |
+| 1.0.0 | Initial release: 4 routing strategies with ERC-8004 trust integration, composite scoring formula, background health monitoring, dry-run simulate endpoint, routes/recent audit log |
 
 ---
 
