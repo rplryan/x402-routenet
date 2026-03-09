@@ -259,19 +259,5 @@ async def server_card():
 
 @app.get("/")
 async def root():
-    return {
-        "service": "x402 RouteNet",
-        "version": "1.0.0",
-        "description": "Smart routing infrastructure for the x402 ecosystem",
-        "endpoints": {
-            "POST /route": "Route a capability request to the best x402 service",
-            "GET /simulate": "Dry-run routing decision",
-            "GET /strategies": "List available routing strategies",
-            "GET /routes/recent": "Recent routing decisions",
-            "GET /health": "Service health",
-            "POST /smithery": "MCP JSON-RPC 2.0 endpoint",
-        },
-        "docs": "/docs",
-        "discovery_api": DISCOVERY_API_URL,
-        "github": "https://github.com/rplryan/x402-routenet",
-    }
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=LANDING_HTML)
